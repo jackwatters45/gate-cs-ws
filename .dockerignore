@@ -1,0 +1,11 @@
+node_modules
+pnpm-debug.log*
+.pnpm-store
+npm-debug.log
+pnpm-debug.log
+biome.json
+lefthook.yml
+.env
+.git
+.gitignore
+README.md

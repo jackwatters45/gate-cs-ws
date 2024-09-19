@@ -1,0 +1,25 @@
+{
+  "name": "gate-cs-ws",
+  "version": "1.0.0",
+  "description": "Websockets server for gate-cs class website.",
+  "main": "server.js",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "docker:build": "docker build -t gate-cs-ws .",
+    "docker:run": "docker run -p 3000:3000 gate-cs-ws",
+    "docker:dev": "docker build -t gate-cs-ws . && docker run -p 3000:3000 -v $(pwd)/src:/usr/src/app/src gate-cs-ws",
+    "docker:clean": "docker system prune -af && docker rmi -f gate-cs-ws"  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.1",
+    "lefthook": "^1.7.15",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

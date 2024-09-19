@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    /* Base Options: */
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "target": "es2022",
+    "allowJs": false, // Set to false if you want strict TS-only
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+    /* Strictness */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "checkJs": false, // Disable since you're strictly using TS
+    /* Node.js Setup */
+    "lib": [
+      "ES2022"
+    ],
+    "module": "CommonJS",
+    "moduleResolution": "node", // Use Node module resolution
+    "jsx": "preserve",
+    "incremental": true,
+    "outDir": "./dist", // Ensure build output goes to `dist` for Docker
+    /* Path Aliases */
+    "baseUrl": "."
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.cjs"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
