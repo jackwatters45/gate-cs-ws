@@ -20,15 +20,24 @@
     "moduleResolution": "node", // Use Node module resolution
     "jsx": "preserve",
     "incremental": true,
+
     "outDir": "./dist", // Ensure build output goes to `dist` for Docker
+
     /* Path Aliases */
-    "baseUrl": "."
+    "baseUrl": ".",
+
+    "sourceMap": true,
+    "experimentalDecorators": true,
+    "pretty": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "forceConsistentCasingInFileNames": true
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
     "src/**/*.cjs"
-  ],
+, "src/server.ts", "index.ts"  ],
   "exclude": [
     "node_modules",
     "dist"

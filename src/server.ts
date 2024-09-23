@@ -1,10 +1,23 @@
 import http from "node:http";
 import { Server } from "socket.io";
 
-const httpServer = http.createServer();
+const httpServer = http.createServer((req, res) => {
+	if (req.url === "/health") {
+		res.writeHead(200, { "Content-Type": "text/plain" });
+		res.end("OK");
+	} else {
+		res.writeHead(404, { "Content-Type": "text/plain" });
+		res.end("Not Found");
+	}
+});
+
 const io = new Server(httpServer, {
 	cors: {
-		origin: "http://localhost:4321", // TODO: Change this to the actual URL of application
+		origin: [
+			"https://gate-cs.jackwatters.dev",
+			process.env.NODE_ENV === "development" && "http://localhost:4321",
+			"http://localhost:4321",
+		].filter(Boolean),
 		methods: ["GET", "POST"],
 	},
 });

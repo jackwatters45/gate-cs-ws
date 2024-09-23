@@ -2,10 +2,10 @@
   "name": "gate-cs-ws",
   "version": "1.0.0",
   "description": "Websockets server for gate-cs class website.",
-  "main": "server.js",
+  "main": "index.ts",
   "scripts": {
     "dev": "tsx src/server.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "docker:build": "docker build -t gate-cs-ws .",
     "docker:run": "docker run -p 3000:3000 gate-cs-ws",
@@ -14,7 +14,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "@pulumi/aws": "^6.0.0",
+    "@pulumi/awsx": "^2.0.2",
+    "@pulumi/pulumi": "^3.113.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.1",

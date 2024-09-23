@@ -1,0 +1,10 @@
+name: gate-cs-ws
+runtime:
+  name: nodejs
+  options:
+    packagemanager: pnpm
+description: A TypeScript program to deploy a virtual machine on Amazon EC2
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: vm-aws-typescript

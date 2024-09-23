@@ -5,7 +5,7 @@ FROM node:18-alpine
 RUN npm install -g pnpm
 
 # Set the working directory in the container
-WORKDIR /usr/src/app
+WORKDIR /usr/src
 
 # Copy package.json (and pnpm-lock.yaml if it exists)
 COPY package.json ./
@@ -30,3 +30,4 @@ EXPOSE 3000
 
 # Command to run the application
 CMD ["node", "dist/server.js"]
+
