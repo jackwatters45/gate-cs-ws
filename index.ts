@@ -239,7 +239,7 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 echo "Logged in to ECR"
 docker pull ${dockerImageUrl}
 echo "Docker image pulled"
-docker run -d --restart unless-stopped -p 3000:3000 -e ALB_DNS=$(curl -s http://169.254.169.254/latest/meta-data/public-hostname) ${dockerImageUrl}
+docker run -d --restart unless-stopped -p 3000:3000 -e ALB_DNS=$(curl -s http://169.254.169.254/latest/meta-data/public-hostname) -e NODE_ENV=production ${dockerImageUrl}
 echo "Docker container started"
 docker ps
 `;

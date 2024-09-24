@@ -34,7 +34,8 @@ const io = new Server(httpServer, {
 	cors: {
 		origin: [
 			"https://gate-cs.jackwatters.dev",
-			isDev ? "http://localhost:4321" : `http://${albDns}`,
+			`http://${albDns}`,
+			isDev && "http://localhost:4321",
 		].filter(Boolean),
 		methods: ["GET", "POST"],
 	},
