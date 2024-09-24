@@ -21,14 +21,35 @@ const ami = aws.ec2
 	})
 	.then((invoke) => invoke.id);
 
-// User data to install Docker and run your WebSocket server
-const userData = pulumi.interpolate`#!/bin/bash
-amazon-linux-extras install docker
-systemctl start docker
-systemctl enable docker
-docker pull ${dockerImageUrl}
-docker run -d -p 3000:3000 ${dockerImageUrl}
-`;
+// Create an IAM role for the EC2 instance
+const role = new aws.iam.Role("webSocketServerRole", {
+	assumeRolePolicy: JSON.stringify({
+		Version: "2012-10-17",
+		Statement: [
+			{
+				Action: "sts:AssumeRole",
+				Effect: "Allow",
+				Principal: {
+					Service: "ec2.amazonaws.com",
+				},
+			},
+		],
+	}),
+});
+
+// Attach the AmazonEC2ContainerRegistryReadOnly policy to the role
+new aws.iam.RolePolicyAttachment("ecrPolicyAttachment", {
+	policyArn: "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+	role: role.name,
+});
+
+// Create an instance profile
+const instanceProfile = new aws.iam.InstanceProfile(
+	"webSocketServerInstanceProfile",
+	{
+		role: role.name,
+	},
+);
 
 // Create VPC.
 const vpc = new aws.ec2.Vpc("vpc", {
@@ -112,6 +133,12 @@ const secGroup = new aws.ec2.SecurityGroup("secGroup", {
 			protocol: "tcp",
 			securityGroups: [albSecGroup.id], // Only allow traffic from ALB
 		},
+		{
+			fromPort: 22,
+			toPort: 22,
+			protocol: "tcp",
+			cidrBlocks: ["73.71.105.87/32"],
+		},
 	],
 	egress: [
 		{
@@ -123,6 +150,36 @@ const secGroup = new aws.ec2.SecurityGroup("secGroup", {
 	],
 });
 
+// Create an Application Load Balancer
+const alb = new aws.lb.LoadBalancer("websocket-alb", {
+	internal: false,
+	loadBalancerType: "application",
+	securityGroups: [albSecGroup.id],
+	subnets: [subnet1.id, subnet2.id],
+	idleTimeout: 3600,
+});
+
+// User data to install Docker and run your WebSocket server
+const userData = pulumi.interpolate`#!/bin/bash
+exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+echo "Starting user data script..."
+yum update -y
+yum install -y docker
+yum install -y aws-cli
+systemctl start docker
+systemctl enable docker
+usermod -aG docker ec2-user
+chmod 666 /var/run/docker.sock
+echo "Docker installed and configured"
+aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 533267298476.dkr.ecr.us-west-2.amazonaws.com
+echo "Logged in to ECR"
+docker pull ${dockerImageUrl}
+echo "Docker image pulled"
+docker run -d --restart unless-stopped -p 3000:3000 -e ALB_DNS=$(curl -s http://169.254.169.254/latest/meta-data/public-hostname) ${dockerImageUrl}
+echo "Docker container started"
+docker ps
+`;
+
 // Create and launch an EC2 instance into the public subnet.
 const server = new aws.ec2.Instance("server", {
 	instanceType: instanceType,
@@ -130,15 +187,9 @@ const server = new aws.ec2.Instance("server", {
 	vpcSecurityGroupIds: [secGroup.id],
 	userData: userData,
 	ami: ami,
+	keyName: "my-websocket-keypair",
+	iamInstanceProfile: instanceProfile.name,
 	tags: { Name: "websocket-server" },
-});
-
-// Create an Application Load Balancer
-const alb = new aws.lb.LoadBalancer("websocket-alb", {
-	internal: false,
-	loadBalancerType: "application",
-	securityGroups: [albSecGroup.id],
-	subnets: [subnet1.id, subnet2.id],
 });
 
 // Create a target group for the ALB

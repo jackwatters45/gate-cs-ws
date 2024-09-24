@@ -4,23 +4,24 @@ FROM node:18-alpine
 # Install pnpm
 RUN npm install -g pnpm
 
+# Create app directory and set permissions
+RUN mkdir -p /usr/src && chown -R node:node /usr/src
+
 # Set the working directory in the container
 WORKDIR /usr/src
 
-# Copy package.json (and pnpm-lock.yaml if it exists)
-COPY package.json ./
-COPY pnpm-lock.yaml* ./
+# Switch to non-root user
+USER node
+
+# Copy package.json and pnpm-lock.yaml
+COPY --chown=node:node package.json pnpm-lock.yaml* ./
 
 # Install dependencies
-RUN if [ -f pnpm-lock.yaml ]; then pnpm install --frozen-lockfile; \
-    else echo "Warning: pnpm-lock.yaml not found. Running pnpm install." && pnpm install; \
-    fi
+RUN pnpm install --frozen-lockfile
 
-# Copy the server source code
-COPY src ./src
-
-# Copy TypeScript config
-COPY tsconfig.json ./
+# Copy the server source code and TypeScript config
+COPY --chown=node:node src ./src
+COPY --chown=node:node tsconfig.json ./
 
 # Build the TypeScript code
 RUN pnpm run build
@@ -30,4 +31,3 @@ EXPOSE 3000
 
 # Command to run the application
 CMD ["node", "dist/server.js"]
-
