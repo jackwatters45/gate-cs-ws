@@ -1,5 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
+import * as cloudinit from "@pulumi/cloudinit";
 
 // Get some configuration values or set default values.
 const config = new pulumi.Config();
@@ -43,13 +44,65 @@ new aws.iam.RolePolicyAttachment("ecrPolicyAttachment", {
 	role: role.name,
 });
 
+// Add CloudWatch Agent policy attachment
+new aws.iam.RolePolicyAttachment("cloudwatchAgentPolicyAttachment", {
+	policyArn: "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
+	role: role.name,
+});
+
 // Create an instance profile
-const instanceProfile = new aws.iam.InstanceProfile(
+const webSocketServerInstanceProfile = new aws.iam.InstanceProfile(
 	"webSocketServerInstanceProfile",
 	{
 		role: role.name,
 	},
 );
+
+const logGroup = new aws.cloudwatch.LogGroup("websocket-server-logs", {
+	name: "/websocket-server/logs",
+	retentionInDays: 7,
+});
+
+const cloudWatchConfig = {
+	agent: {
+		run_as_user: "root",
+	},
+	logs: {
+		logs_collected: {
+			files: {
+				collect_list: [
+					{
+						file_path: "/usr/src/combined.log",
+						log_group_name: logGroup.name,
+						log_stream_name: "websocket-server-logs",
+					},
+				],
+			},
+		},
+	},
+};
+
+const cloudInitConfig = cloudinit.getConfig({
+	gzip: false,
+	base64Encode: false,
+	parts: [
+		{
+			content: `#cloud-config
+packages:
+- amazon-cloudwatch-agent
+write_files:
+- path: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+	content: '${JSON.stringify(cloudWatchConfig)}'
+	permissions: '0644'
+runcmd:
+- amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+- systemctl enable amazon-cloudwatch-agent
+- systemctl start amazon-cloudwatch-agent
+`,
+			contentType: "text/cloud-config",
+		},
+	],
+});
 
 // Create VPC.
 const vpc = new aws.ec2.Vpc("vpc", {
@@ -159,18 +212,29 @@ const alb = new aws.lb.LoadBalancer("websocket-alb", {
 	idleTimeout: 3600,
 });
 
-// User data to install Docker and run your WebSocket server
+// User data to install Docker and run your WebSocket server + CloudWatch agent
 const userData = pulumi.interpolate`#!/bin/bash
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 echo "Starting user data script..."
 yum update -y
 yum install -y docker
 yum install -y aws-cli
+yum install -y amazon-cloudwatch-agent
 systemctl start docker
 systemctl enable docker
 usermod -aG docker ec2-user
 chmod 666 /var/run/docker.sock
 echo "Docker installed and configured"
+
+# Configure CloudWatch agent
+cat <<EOF > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+${JSON.stringify(cloudWatchConfig)}
+EOF
+amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+systemctl enable amazon-cloudwatch-agent
+systemctl start amazon-cloudwatch-agent
+echo "CloudWatch agent configured and started"
+
 aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 533267298476.dkr.ecr.us-west-2.amazonaws.com
 echo "Logged in to ECR"
 docker pull ${dockerImageUrl}
@@ -188,7 +252,7 @@ const server = new aws.ec2.Instance("server", {
 	userData: userData,
 	ami: ami,
 	keyName: "my-websocket-keypair",
-	iamInstanceProfile: instanceProfile.name,
+	iamInstanceProfile: webSocketServerInstanceProfile.name,
 	tags: { Name: "websocket-server" },
 });
 
