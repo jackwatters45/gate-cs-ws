@@ -17,6 +17,9 @@ importers:
       '@pulumi/pulumi':
         specifier: ^3.113.0
         version: 3.133.0(typescript@5.6.2)
+      '@pulumi/tls':
+        specifier: ^5.0.6
+        version: 5.0.6(typescript@5.6.2)
       socket.io:
         specifier: ^4.7.5
         version: 4.7.5
@@ -454,6 +457,9 @@ packages:
 
   '@pulumi/query@0.3.0':
     resolution: {integrity: sha512-xfo+yLRM2zVjVEA4p23IjQWzyWl1ZhWOGobsBqRpIarzLvwNH/RAGaoehdxlhx4X92302DrpdIFgTICMN4P38w==}
+
+  '@pulumi/tls@5.0.6':
+    resolution: {integrity: sha512-jQiGeKMONBxXmydz5qHJdhnu1oyxCaeuW6sBEj3KOMf2sNUS3skGvftQtUtMmqheamMZsgFetg8/KSjjZt9btA==}
 
   '@sigstore/bundle@2.3.2':
     resolution: {integrity: sha512-wueKWDk70QixNLB363yHc2D2ItTgYiMTdPwK8D9dKQMR3ZQ0c35IxP5xnwQ8cNLoCgCRcHf14kE+CLIvNX1zmA==}
@@ -1992,6 +1998,15 @@ snapshots:
       - supports-color
 
   '@pulumi/query@0.3.0': {}
+
+  '@pulumi/tls@5.0.6(typescript@5.6.2)':
+    dependencies:
+      '@pulumi/pulumi': 3.133.0(typescript@5.6.2)
+    transitivePeerDependencies:
+      - bluebird
+      - supports-color
+      - ts-node
+      - typescript
 
   '@sigstore/bundle@2.3.2':
     dependencies:

@@ -13,10 +13,9 @@ const logger = winston.createLogger({
 	],
 });
 
-const albDns = process.env.ALB_DNS;
 const isDev = process.env.NODE_ENV === "development";
 
-if (!albDns && !isDev) {
+if (!isDev) {
 	throw new Error("ALB_DNS environment variable not set");
 }
 
@@ -34,7 +33,7 @@ const io = new Server(httpServer, {
 	cors: {
 		origin: [
 			"https://gate-cs.jackwatters.dev",
-			`http://${albDns}`,
+			"https://gate-cs-ws.jackwatters.dev",
 			isDev && "http://localhost:4321",
 		].filter(Boolean),
 		methods: ["GET", "POST"],

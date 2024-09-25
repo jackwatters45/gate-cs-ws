@@ -1,6 +1,7 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as cloudinit from "@pulumi/cloudinit";
+import * as tls from "@pulumi/tls";
 
 // Get some configuration values or set default values.
 const config = new pulumi.Config();
@@ -169,6 +170,13 @@ const albSecGroup = new aws.ec2.SecurityGroup("albSecGroup", {
 			cidrBlocks: ["0.0.0.0/0"],
 			description: "Allow HTTP traffic",
 		},
+		{
+			fromPort: 443,
+			toPort: 443,
+			protocol: "tcp",
+			cidrBlocks: ["0.0.0.0/0"],
+			description: "Allow HTTPS traffic",
+		},
 	],
 	egress: [
 		{ fromPort: 0, toPort: 0, protocol: "-1", cidrBlocks: ["0.0.0.0/0"] },
@@ -190,7 +198,7 @@ const secGroup = new aws.ec2.SecurityGroup("secGroup", {
 			fromPort: 22,
 			toPort: 22,
 			protocol: "tcp",
-			cidrBlocks: ["73.71.105.87/32"],
+			cidrBlocks: ["104.28.248.88/32"],
 		},
 	],
 	egress: [
@@ -239,7 +247,7 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 echo "Logged in to ECR"
 docker pull ${dockerImageUrl}
 echo "Docker image pulled"
-docker run -d --restart unless-stopped -p 3000:3000 -e ALB_DNS=$(curl -s http://169.254.169.254/latest/meta-data/public-hostname) -e NODE_ENV=production ${dockerImageUrl}
+docker run -d --restart unless-stopped -p 3000:3000 -e NODE_ENV=production ${dockerImageUrl}
 echo "Docker container started"
 docker ps
 `;
@@ -292,10 +300,53 @@ const targetGroupAttachment = new aws.lb.TargetGroupAttachment(
 	},
 );
 
-// Create an HTTP listener
+// HTTP listener for redirecting HTTP to HTTPS
 const httpListener = new aws.lb.Listener("http-listener", {
 	loadBalancerArn: alb.arn,
 	port: 80,
+	defaultActions: [{
+			type: "redirect",
+			redirect: {
+					port: "443",
+					protocol: "HTTPS",
+					statusCode: "HTTP_301",
+			},
+	}],
+});
+
+
+// Create a private key
+const privateKey = new tls.PrivateKey("privateKey", {
+	algorithm: "RSA",
+	rsaBits: 2048,
+});
+
+// Create a self-signed certificate
+const selfSignedCert = new tls.SelfSignedCert("selfSignedCert", {
+	dnsNames: ["gate-cs-ws.jackwatters.dev"],
+	privateKeyPem: privateKey.privateKeyPem,
+	subject: {
+		commonName: "jackwatters.dev",
+		organization: "YATS",
+	},
+	validityPeriodHours: 807660,
+	allowedUses: ["cert_signing", "key_encipherment", "digital_signature"],
+});
+
+// Create a certificate in AWS ACM
+const cert = new aws.acm.Certificate("cert", {
+	certificateBody: selfSignedCert.certPem,
+	privateKey: selfSignedCert.privateKeyPem,
+	certificateChain: selfSignedCert.certPem,
+});
+
+// Create a HTTPS listener
+const httpsListener = new aws.lb.Listener("https-listener", {
+	loadBalancerArn: alb.arn,
+	port: 443,
+	protocol: "HTTPS",
+	sslPolicy: "ELBSecurityPolicy-2016-08",
+	certificateArn: cert.arn,
 	defaultActions: [
 		{
 			type: "forward",
@@ -346,4 +397,4 @@ const wafWebAclAssociation = new aws.wafv2.WebAclAssociation(
 // Export the ALB's DNS name and the EC2 instance's public IP
 export const albDns = alb.dnsName;
 export const instanceIp = server.publicIp;
-export const websocketUrl = pulumi.interpolate`http://${alb.dnsName}`;
+export const websocketUrl = pulumi.interpolate`https://${alb.dnsName}`;
