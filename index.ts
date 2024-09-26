@@ -1,7 +1,6 @@
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as cloudinit from "@pulumi/cloudinit";
-import * as tls from "@pulumi/tls";
 
 // Get some configuration values or set default values.
 const config = new pulumi.Config();
@@ -304,40 +303,38 @@ const targetGroupAttachment = new aws.lb.TargetGroupAttachment(
 const httpListener = new aws.lb.Listener("http-listener", {
 	loadBalancerArn: alb.arn,
 	port: 80,
-	defaultActions: [{
+	defaultActions: [
+		{
 			type: "redirect",
 			redirect: {
-					port: "443",
-					protocol: "HTTPS",
-					statusCode: "HTTP_301",
+				port: "443",
+				protocol: "HTTPS",
+				statusCode: "HTTP_301",
 			},
-	}],
+		},
+	],
 });
 
-
-// Create a private key
-const privateKey = new tls.PrivateKey("privateKey", {
-	algorithm: "RSA",
-	rsaBits: 2048,
-});
-
-// Create a self-signed certificate
-const selfSignedCert = new tls.SelfSignedCert("selfSignedCert", {
-	dnsNames: ["gate-cs-ws.jackwatters.dev"],
-	privateKeyPem: privateKey.privateKeyPem,
-	subject: {
-		commonName: "jackwatters.dev",
-		organization: "YATS",
-	},
-	validityPeriodHours: 807660,
-	allowedUses: ["cert_signing", "key_encipherment", "digital_signature"],
-});
-
-// Create a certificate in AWS ACM
+// Request a certificate from ACM
 const cert = new aws.acm.Certificate("cert", {
-	certificateBody: selfSignedCert.certPem,
-	privateKey: selfSignedCert.privateKeyPem,
-	certificateChain: selfSignedCert.certPem,
+	domainName: "gate-cs-ws.jackwatters.dev",
+	validationMethod: "DNS",
+	subjectAlternativeNames: ["*.gate-cs-ws.jackwatters.dev"], // Include wildcard for subdomains
+});
+
+// Export the certificate validation details
+export const certificateValidationDetails = cert.domainValidationOptions[0];
+
+if (!certificateValidationDetails) {
+	throw new Error("Certificate validation details not found");
+}
+
+// Wait for the certificate to be validated
+const certValidation = new aws.acm.CertificateValidation("certValidation", {
+	certificateArn: cert.arn,
+	validationRecordFqdns: [
+		pulumi.interpolate`${certificateValidationDetails.resourceRecordName}`,
+	],
 });
 
 // Create a HTTPS listener
@@ -346,7 +343,7 @@ const httpsListener = new aws.lb.Listener("https-listener", {
 	port: 443,
 	protocol: "HTTPS",
 	sslPolicy: "ELBSecurityPolicy-2016-08",
-	certificateArn: cert.arn,
+	certificateArn: certValidation.certificateArn,
 	defaultActions: [
 		{
 			type: "forward",
