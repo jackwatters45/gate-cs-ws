@@ -219,7 +219,59 @@ const alb = new aws.lb.LoadBalancer("websocket-alb", {
 	idleTimeout: 3600,
 });
 
-// User data to install Docker and run your WebSocket server + CloudWatch agent
+
+
+// // Create a subnet group for Redis
+// const redisSubnetGroup = new aws.elasticache.SubnetGroup("redis-subnet-group", {
+// 	name: "redis-subnet-group",
+// 	subnetIds: [subnet1.id, subnet2.id], // Use the existing subnets
+// 	description: "Subnet group for Redis cluster",
+// });
+
+// // Create a security group for Redis
+// const redisSecurityGroup = new aws.ec2.SecurityGroup("redis-security-group", {
+// 	vpcId: vpc.id,
+// 	description: "Security group for Redis cluster",
+// 	ingress: [
+// 			{
+// 					protocol: "tcp",
+// 					fromPort: 6379,
+// 					toPort: 6379,
+// 					securityGroups: [secGroup.id],
+// 			},
+// 			{
+// 					protocol: "tcp",
+// 					fromPort: 6379,
+// 					toPort: 6379,
+// 					cidrBlocks: ["104.28.248.88/32"], // Replace with your IP
+// 			},
+// 	],
+// 	egress: [
+// 			{ fromPort: 0, toPort: 0, protocol: "-1", cidrBlocks: ["0.0.0.0/0"] },
+// 	],
+// });
+
+// // Create the Redis cluster
+// const redisCluster = new aws.elasticache.Cluster("redis-cluster", {
+// 	engine: "redis",
+// 	engineVersion: "6.x",
+// 	nodeType: "cache.t3.micro", // Adjust based on your needs
+// 	numCacheNodes: 1,
+// 	parameterGroupName: "default.redis6.x",
+// 	port: 6379,
+// 	subnetGroupName: redisSubnetGroup.name,
+// 	securityGroupIds: [redisSecurityGroup.id],
+// });
+
+// // Export the Redis endpoint for use in your application
+// export const redisEndpoint = redisCluster.cacheNodes[0]?.address;
+// export const redisPort = redisCluster.port;
+
+// if (!redisEndpoint) {
+// 	throw new Error("Redis endpoint not found");
+// }
+
+// Update the user data to include Redis configuration
 const userData = pulumi.interpolate`#!/bin/bash
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 echo "Starting user data script..."
@@ -246,10 +298,12 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 echo "Logged in to ECR"
 docker pull ${dockerImageUrl}
 echo "Docker image pulled"
-docker run -d --restart unless-stopped -p 3000:3000 -e NODE_ENV=production ${dockerImageUrl}
-echo "Docker container started"
 docker ps
 `;
+
+// add this if readd aws redis
+// docker run -d --restart unless-stopped -p 3000:3000 -e NODE_ENV=production -e REDIS_ENDPOINT=${redisEndpoint} -e REDIS_PORT=${redisCluster.port} ${dockerImageUrl}
+// echo "Docker container started with Redis configuration"
 
 // Create and launch an EC2 instance into the public subnet.
 const server = new aws.ec2.Instance("server", {

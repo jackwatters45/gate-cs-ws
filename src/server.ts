@@ -1,6 +1,22 @@
+import { Redis } from "@upstash/redis";
 import http from "node:http";
 import { Server } from "socket.io";
+import type { Socket } from "socket.io";
 import winston from "winston";
+import type { DefaultEventsMap } from "socket.io/dist/typed-events";
+
+// Define the structure of whiteboard data
+interface WhiteboardData {
+	content: string;
+	lastUpdated: number;
+}
+
+// Extend the Socket type to include whiteboardId
+interface WhiteboardSocket
+	// biome-ignore lint/suspicious/noExplicitAny: <doesn't matter>
+	extends Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, any> {
+	whiteboardId?: string;
+}
 
 const logger = winston.createLogger({
 	level: "info",
@@ -15,10 +31,6 @@ const logger = winston.createLogger({
 
 const isDev = process.env.NODE_ENV === "development";
 
-if (!isDev) {
-	throw new Error("ALB_DNS environment variable not set");
-}
-
 const httpServer = http.createServer((req, res) => {
 	if (req.url === "/health") {
 		res.writeHead(200, { "Content-Type": "text/plain" });
@@ -29,34 +41,84 @@ const httpServer = http.createServer((req, res) => {
 	}
 });
 
+// Redis configuration
+const redisUrl = process.env.UPSTASH_REDIS_URL;
+const redisToken = process.env.UPSTASH_REDIS_TOKEN;
+
+if (!redisUrl || !redisToken) {
+	logger.error("Redis URL or token not provided");
+	process.exit(1);
+}
+
+// Create Redis client
+const redis = new Redis({
+	url: redisUrl,
+	token: redisToken,
+});
+
 const io = new Server(httpServer, {
 	cors: {
 		origin: [
 			"https://gate-cs.jackwatters.dev",
 			"https://gate-cs-ws.jackwatters.dev",
 			isDev && "http://localhost:4321",
+			isDev && "http://localhost:3000",
 		].filter(Boolean),
 		methods: ["GET", "POST"],
 	},
 });
 
-let sharedCode = "// Start coding here\n";
-
-io.on("connection", (socket) => {
+io.on("connection", (socket: WhiteboardSocket) => {
 	logger.info("A user connected");
 
-	// Send current code to newly connected client
-	socket.emit("initialCode", sharedCode);
+	socket.on("joinWhiteboard", async (whiteboardId: string) => {
+		logger.info(`User joined whiteboard: ${whiteboardId}`);
 
-	// Handle code updates
-	socket.on("codeChange", (newCode) => {
-		sharedCode = newCode;
-		// Broadcast to all clients except sender
-		socket.broadcast.emit("codeUpdate", newCode);
+		if (socket.whiteboardId) {
+			socket.leave(socket.whiteboardId);
+		}
+
+		socket.join(whiteboardId);
+		socket.whiteboardId = whiteboardId;
+
+		try {
+			let whiteboardData = await redis.get<WhiteboardData>(
+				`whiteboard:${whiteboardId}`,
+			);
+			if (!whiteboardData) {
+				whiteboardData = { content: "", lastUpdated: Date.now() };
+				await redis.set(
+					`whiteboard:${whiteboardId}`,
+					JSON.stringify(whiteboardData),
+				);
+			}
+
+			socket.emit("whiteboardData", whiteboardData);
+		} catch (error) {
+			logger.error("Error fetching whiteboard data:", error);
+			socket.emit("error", "Failed to fetch whiteboard data");
+		}
+	});
+
+	socket.on("updateWhiteboard", async (data: WhiteboardData) => {
+		if (socket.whiteboardId) {
+			try {
+				data.lastUpdated = Date.now();
+				await redis.set(`whiteboard:${socket.whiteboardId}`, JSON.stringify(data));
+
+				socket.to(socket.whiteboardId).emit("whiteboardUpdate", data);
+			} catch (error) {
+				logger.error("Error updating whiteboard data:", error);
+				socket.emit("error", "Failed to update whiteboard data");
+			}
+		}
 	});
 
 	socket.on("disconnect", () => {
 		logger.info("User disconnected");
+		if (socket.whiteboardId) {
+			socket.leave(socket.whiteboardId);
+		}
 	});
 });
 
