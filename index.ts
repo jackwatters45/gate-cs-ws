@@ -4,23 +4,33 @@ import * as cloudinit from "@pulumi/cloudinit";
 
 // Get some configuration values or set default values.
 const config = new pulumi.Config();
-const instanceType = config.get("instanceType") || "t3.micro";
+const instanceType = config.get("instanceType") || "t4g.micro";
 const vpcNetworkCidr = config.get("vpcNetworkCidr") || "10.0.0.0/16";
 const dockerImageUrl = config.require("dockerImageUrl");
+const sshAccessIp = config.get("sshAccessIp") ?? "0.0.0.0/0";
 
-// Look up the latest Amazon Linux 2 AMI.
-const ami = aws.ec2
-	.getAmi({
-		filters: [
-			{
-				name: "name",
-				values: ["amzn2-ami-hvm-*"],
-			},
-		],
-		owners: ["amazon"],
-		mostRecent: true,
-	})
-	.then((invoke) => invoke.id);
+// Look up the latest Amazon Linux 2023 AMI.
+const ami = aws.ec2.getAmiOutput({
+	filters: [
+		{ name: "name", values: ["al2023-ami-*-arm64"] },
+		{ name: "virtualization-type", values: ["hvm"] },
+	],
+	owners: ["amazon"],
+	mostRecent: true,
+});
+
+// Create SSM Parameters for Redis URL and Token
+const redisUrlParam = new aws.ssm.Parameter("redisUrlParam", {
+	type: "SecureString",
+	name: "/gate-cs-ws/UPSTASH_REDIS_URL",
+	value: config.requireSecret("redisUrl"),
+});
+
+const redisTokenParam = new aws.ssm.Parameter("redisTokenParam", {
+	type: "SecureString",
+	name: "/gate-cs-ws/UPSTASH_REDIS_TOKEN",
+	value: config.requireSecret("redisToken"),
+});
 
 // Create an IAM role for the EC2 instance
 const role = new aws.iam.Role("webSocketServerRole", {
@@ -48,6 +58,25 @@ new aws.iam.RolePolicyAttachment("ecrPolicyAttachment", {
 new aws.iam.RolePolicyAttachment("cloudwatchAgentPolicyAttachment", {
 	policyArn: "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy",
 	role: role.name,
+});
+
+// Add policy for SSM Parameter access
+new aws.iam.RolePolicy("ssmParamPolicy", {
+	role: role.id,
+	policy: {
+		Version: "2012-10-17",
+		Statement: [
+			{
+				Effect: "Allow",
+				Action: [
+					"ssm:GetParameter",
+					"ssm:GetParameters",
+					"ssm:GetParametersByPath",
+				],
+				Resource: [redisUrlParam.arn, redisTokenParam.arn],
+			},
+		],
+	},
 });
 
 // Create an instance profile
@@ -197,7 +226,7 @@ const secGroup = new aws.ec2.SecurityGroup("secGroup", {
 			fromPort: 22,
 			toPort: 22,
 			protocol: "tcp",
-			cidrBlocks: ["104.28.248.88/32"],
+			cidrBlocks: [sshAccessIp],
 		},
 	],
 	egress: [
@@ -219,91 +248,79 @@ const alb = new aws.lb.LoadBalancer("websocket-alb", {
 	idleTimeout: 3600,
 });
 
-
-
-// // Create a subnet group for Redis
-// const redisSubnetGroup = new aws.elasticache.SubnetGroup("redis-subnet-group", {
-// 	name: "redis-subnet-group",
-// 	subnetIds: [subnet1.id, subnet2.id], // Use the existing subnets
-// 	description: "Subnet group for Redis cluster",
-// });
-
-// // Create a security group for Redis
-// const redisSecurityGroup = new aws.ec2.SecurityGroup("redis-security-group", {
-// 	vpcId: vpc.id,
-// 	description: "Security group for Redis cluster",
-// 	ingress: [
-// 			{
-// 					protocol: "tcp",
-// 					fromPort: 6379,
-// 					toPort: 6379,
-// 					securityGroups: [secGroup.id],
-// 			},
-// 			{
-// 					protocol: "tcp",
-// 					fromPort: 6379,
-// 					toPort: 6379,
-// 					cidrBlocks: ["104.28.248.88/32"], // Replace with your IP
-// 			},
-// 	],
-// 	egress: [
-// 			{ fromPort: 0, toPort: 0, protocol: "-1", cidrBlocks: ["0.0.0.0/0"] },
-// 	],
-// });
-
-// // Create the Redis cluster
-// const redisCluster = new aws.elasticache.Cluster("redis-cluster", {
-// 	engine: "redis",
-// 	engineVersion: "6.x",
-// 	nodeType: "cache.t3.micro", // Adjust based on your needs
-// 	numCacheNodes: 1,
-// 	parameterGroupName: "default.redis6.x",
-// 	port: 6379,
-// 	subnetGroupName: redisSubnetGroup.name,
-// 	securityGroupIds: [redisSecurityGroup.id],
-// });
-
-// // Export the Redis endpoint for use in your application
-// export const redisEndpoint = redisCluster.cacheNodes[0]?.address;
-// export const redisPort = redisCluster.port;
-
-// if (!redisEndpoint) {
-// 	throw new Error("Redis endpoint not found");
-// }
-
 // Update the user data to include Redis configuration
 const userData = pulumi.interpolate`#!/bin/bash
+set -e  # Exit immediately if a command exits with a non-zero status
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
 echo "Starting user data script..."
-yum update -y
-yum install -y docker
-yum install -y aws-cli
-yum install -y amazon-cloudwatch-agent
+
+# Update and install packages
+dnf update -y
+dnf install -y docker aws-cli amazon-cloudwatch-agent
+
+# Start and enable Docker
 systemctl start docker
 systemctl enable docker
+
+# Add ec2-user to docker group
 usermod -aG docker ec2-user
+
+# Adjust Docker socket permissions (consider a more secure approach in production)
 chmod 666 /var/run/docker.sock
+
 echo "Docker installed and configured"
 
 # Configure CloudWatch agent
 cat <<EOF > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 ${JSON.stringify(cloudWatchConfig)}
 EOF
-amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+# Start CloudWatch agent
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
 systemctl enable amazon-cloudwatch-agent
 systemctl start amazon-cloudwatch-agent
+
 echo "CloudWatch agent configured and started"
 
+# Fetch Redis credentials from SSM
+REDIS_URL=$(aws ssm get-parameter --name /gate-cs-ws/UPSTASH_REDIS_URL --with-decryption --query Parameter.Value --output text --region ${aws.config.region})
+REDIS_TOKEN=$(aws ssm get-parameter --name /gate-cs-ws/UPSTASH_REDIS_TOKEN --with-decryption --query Parameter.Value --output text --region ${aws.config.region})
+
+if [ -z "$REDIS_URL" ] || [ -z "$REDIS_TOKEN" ]; then
+    echo "Error: Failed to retrieve Redis credentials from SSM"
+    exit 1
+fi
+
+# Create a .env file for the application
+mkdir -p /app
+echo "UPSTASH_REDIS_URL=$REDIS_URL" > /app/.env
+echo "UPSTASH_REDIS_TOKEN=$REDIS_TOKEN" >> /app/.env
+chmod 600 /app/.env
+
+# Login to ECR
 aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 533267298476.dkr.ecr.us-west-2.amazonaws.com
 echo "Logged in to ECR"
+
+# Pull the Docker image
 docker pull ${dockerImageUrl}
 echo "Docker image pulled"
-docker ps
-`;
 
-// add this if readd aws redis
-// docker run -d --restart unless-stopped -p 3000:3000 -e NODE_ENV=production -e REDIS_ENDPOINT=${redisEndpoint} -e REDIS_PORT=${redisCluster.port} ${dockerImageUrl}
-// echo "Docker container started with Redis configuration"
+# Run the Docker container with environment variables
+docker run -d --restart unless-stopped -p 3000:3000 \
+    -e NODE_ENV=production \
+    -e ALB_DNS=${alb.dnsName} \
+    -e UPSTASH_REDIS_URL="$REDIS_URL" \
+    -e UPSTASH_REDIS_TOKEN="$REDIS_TOKEN" \
+    ${dockerImageUrl}
+
+echo "Docker container started with Redis configuration"
+
+# Verify the container is running
+docker ps
+
+echo "User data script completed successfully"
+`;
 
 // Create and launch an EC2 instance into the public subnet.
 const server = new aws.ec2.Instance("server", {
@@ -311,7 +328,7 @@ const server = new aws.ec2.Instance("server", {
 	subnetId: subnet1.id,
 	vpcSecurityGroupIds: [secGroup.id],
 	userData: userData,
-	ami: ami,
+	ami: ami.id,
 	keyName: "my-websocket-keypair",
 	iamInstanceProfile: webSocketServerInstanceProfile.name,
 	tags: { Name: "websocket-server" },

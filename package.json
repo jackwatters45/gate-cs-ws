@@ -7,10 +7,10 @@
     "dev": "NODE_ENV=development tsx src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "ecr-login": "sh ecr-login.sh",
-    "docker:push": "sh push_to_ecr.sh",
+    "deploy": "npm run docker:push && sh scripts/update-id-and-pulumi.sh",
+    "docker:push": "sh scripts/push_to_ecr.sh",
     "docker:build": "docker build -t gate-cs-ws .",
-    "docker:dev": "npm run docker:build && ./run-docker-dev.sh",
+    "docker:dev": "npm run docker:build && sh scripts/run-docker-dev.sh",
     "docker:clean": "docker system prune -af && docker rmi -f gate-cs-ws"
   },
   "author": "",

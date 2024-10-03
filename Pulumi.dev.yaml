@@ -1,5 +1,12 @@
 config:
   aws:region: us-west-2
   gate-cs-ws:dockerImageUrl: 533267298476.dkr.ecr.us-west-2.amazonaws.com/gate-cs-ws:latest
-  gate-cs-ws:instanceType: t3.micro
+  gate-cs-ws:instanceType: t4g.micro
+  gate-cs-ws:ipAddress:
+    sshAccessIp: 73.71.105.87
+  gate-cs-ws:redisToken:
+    secure: AAABANbvkyMOLQZWETohH9kJSSDPO2YMNPVY78b3y1/opKbhAO3R42udhupjwH7uPgjhW+DVGTEAi+zRezvtpf2Zt+7IE+ohcai59xRONUFnCBO/awMz5Few
+  gate-cs-ws:redisUrl:
+    secure: AAABAIUqDvGVpXCbH3/u7XA6xANmjlxtGJfEFSDbpLCjnVx4w8WDq8FyTlyF4FL/BzzzJIeYSRecQ6aMAPeNP1mUWoWLVQ==
+  gate-cs-ws:sshAccessIp: 73.71.105.87/32
   gate-cs-ws:vpcNetworkCidr: 10.0.0.0/16

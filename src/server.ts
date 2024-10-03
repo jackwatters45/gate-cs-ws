@@ -130,7 +130,7 @@ io.on("connect_error", (error) => {
 	logger.error("Socket.IO connection error:", error);
 });
 
-const PORT = process.env.SOCKET_PORT || 3000;
+const PORT = process.env.SOCKET_PORT ?? 3000;
 httpServer.listen(PORT, () => {
 	logger.info(`Socket.IO server running on port ${PORT}`);
 });
